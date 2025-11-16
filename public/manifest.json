@@ -1,0 +1,13 @@
+{
+  "url": "https://index-html-win-lgtf.vercel.app",
+  "name": "TON Wallet Connect",
+  "iconUrl": "https://index-html-win-lgtf.vercel.app/icon.png",
+  "termsOfUseUrl": "https://index-html-win-lgtf.vercel.app/terms",
+  "privacyPolicyUrl": "https://index-html-win-lgtf.vercel.app/privacy",
+  "manifestVersion": 1,
+  "bridge": {
+    "type": "js",
+    "url": "https://bridge.tonapi.io/bridge"
+  },
+  "platforms": ["web"]
+}
