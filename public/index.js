@@ -1,13 +1,13 @@
-// /public/index.js
+// /public/index.js (Frontend - Telegram WebApp)
 
-// === الثوابت الموحدة (Frontend Constants) ===
+// === الثوابت الموحدة ===
 const AD_REWARD = 400;
 const DAILY_MAX_ADS = 100;
-const COOLDOWN_SEC = 3; 
+const COOLDOWN_SEC = 3;
 const POINTS_TO_USDT_RATE = 100000;
 const BOT_USERNAME = 'Game_win_usdtBot';
 
-// === UI Elements Mapping ===
+// === UI Elements ===
 const UI = {
     loaderOverlay: document.getElementById('loaderOverlay'),
     points: document.getElementById('points'),
@@ -38,292 +38,277 @@ const UI = {
     leaderboardStatus: document.getElementById('leaderboardStatus'),
 };
 
-// === Core Logic Functions ===
-
+// === Helpers ===
 function getTelegramUserID() {
-    return window.Telegram?.WebApp?.initDataUnsafe?.user?.id ? String(window.Telegram.WebApp.initDataUnsafe.user.id) : null;
+    return window.Telegram?.WebApp?.initDataUnsafe?.user?.id
+        ? String(window.Telegram.WebApp.initDataUnsafe.user.id)
+        : null;
 }
 
 function getRefParam() {
     const startParam = new URLSearchParams(window.location.search).get('startapp');
-    if (startParam && startParam.startsWith('ref_')) {
-        return startParam.replace('ref_', '');
-    }
-    return null;
+    return startParam?.startsWith('ref_') ? startParam.replace('ref_', '') : null;
 }
 
 async function api(action, params = {}) {
-    UI.loaderOverlay.style.display = 'flex'; 
+    UI.loaderOverlay.style.display = 'flex';
     try {
         const response = await fetch(`/api/index`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action, ...params }),
+            body: JSON.stringify({ action, ...params, user_id: getTelegramUserID() }),
         });
 
+        const text = await response.text();
         if (!response.ok) {
-            throw new Error(`API HTTP Error: ${response.status} - ${response.statusText}`);
+            throw new Error(`HTTP ${response.status} → ${text}`);
         }
 
-        const data = await response.json();
-        if (!data.success) {
-            throw new Error(data.error || 'Unknown API Error');
-        }
-        return data;
-    } catch (error) {
-        console.error(`Error during API call to /api/index (Action: ${action}):`, error);
-        showNotif(`Operation failed: ${error.message}`, 'error'); 
-        return { success: false, error: error.message };
+        if (!text.trim()) return { success: false, error: "Empty JSON response" };
+
+        const json = JSON.parse(text);
+        if (!json.success) throw new Error(json.error);
+        return json;
+    } catch (e) {
+        showNotif(`Error: ${e.message}`, 'error');
+        return { success: false, error: e.message };
     } finally {
         UI.loaderOverlay.style.display = 'none';
     }
 }
 
-/**
- * إصلاح: إرسال جميع بيانات المستخدم إلى التسجيل (إصلاح 6).
- */
+// === Register User ===
 async function registerUser() {
     const userId = getTelegramUserID();
-    const refBy = getRefParam();
-    
-    if (!userId) {
-        console.warn("User ID not available, skipping registration.");
-        return;
-    }
-    
-    const webAppUser = window.Telegram?.WebApp?.initDataUnsafe?.user || {};
-    
-    const response = await api('register', {
+    if (!userId) return;
+
+    const u = window.Telegram?.WebApp?.initDataUnsafe?.user || {};
+
+    await api("register", {
         user_id: userId,
-        ref_by: refBy,
-        username: webAppUser.username || null,
-        first_name: webAppUser.first_name || null,
-        photo_url: webAppUser.photo_url || null,
+        ref_by: getRefParam(),
+        username: u.username || null,
+        first_name: u.first_name || null,
+        photo_url: u.photo_url || null
     });
-
-    if (!response.success) {
-        console.error("Registration failed:", response.error);
-    }
 }
 
-/**
- * إصلاح: يعتمد فقط على response.data القادم من backend ولا يحسب cooldown محلياً (إصلاح 7).
- */
-async function getProfile() {
-    const userId = getTelegramUserID();
-    if (!userId) return;
-
-    const response = await api('profile', { user_id: userId });
-
-    if (response.success && response.data) {
-        updateUI(response.data);
-    } else {
-        console.error("Failed to fetch profile:", response.error);
-        showNotif(`Error loading profile: ${response.error}`, 'error');
-    }
-}
-
-/**
- * إصلاح: يعتمد 100% على adStatus فقط (إصلاح 3).
- */
-async function handleAdWatch() {
-    const userId = getTelegramUserID();
-    if (!userId) return;
-
-    if (!window.showGiga) { 
-        showNotif("Ad service not available.", 'error'); 
-        return; 
-    }
-
-    // 1. Check ad status
-    const statusResponse = await api('adStatus', { user_id: userId });
-    
-    if (!statusResponse.success) {
-        showNotif(statusResponse.error, 'error');
-        return;
-    }
-    
-    const { can_watch, remaining_cooldown_sec } = statusResponse.data;
-    
-    // يمنع الضغط ويعرض انتظار إذا كان remaining_cooldown_sec > 0
-    if (!can_watch) {
-        updateAdButton(statusResponse.data);
-        if (remaining_cooldown_sec > 0) {
-            showNotif(`You must wait ${remaining_cooldown_sec}s.`, 'info');
-        } else {
-            showNotif("Daily limit reached.", 'error');
-        }
-        return;
-    }
-    
-    // 2. Show Ad and 3. Reward
-    try {
-        await window.showGiga();
-        
-        const watchResponse = await api('adWatch', { 
-            user_id: userId,
-            reward: AD_REWARD
-        });
-
-        if (watchResponse.success && watchResponse.data) {
-            updateUI(watchResponse.data);
-        } else {
-            showNotif(`Ad Reward Error: ${watchResponse.error}`, 'error');
-        }
-    } catch (e) {
-        showNotif('Ad cancelled or failed to load.', 'error');
-    }
-}
-
-/**
- * إصلاح: يرسل ل updateAdButton البيانات المحسوبة فقط من adStatus (إصلاح 2).
- */
+// === UI Update ===
 function updateUI(data) {
-    if (UI.points) UI.points.textContent = data.points || 0;
-    if (UI.usdt) UI.usdt.textContent = (data.usdt || 0).toFixed(2);
-    if (UI.refCount) UI.refCount.textContent = data.refs || 0;
-    
-    const usernameFromDB = data.username || data.first_name || 'User';
-    if (UI.username) UI.username.textContent = usernameFromDB;
-    if (UI.userImg && data.photo_url) {
+    UI.points.textContent = data.points || 0;
+    UI.usdt.textContent = (data.usdt || 0).toFixed(2);
+    UI.refCount.textContent = data.refs || 0;
+    UI.availableUsdt.textContent = (data.usdt || 0).toFixed(2);
+
+    UI.username.textContent = data.username || data.first_name || "User";
+
+    if (data.photo_url) {
         UI.userImg.src = data.photo_url;
         UI.userImg.style.display = 'block';
-    } else if (UI.userImg) {
+    } else {
         UI.userImg.style.display = 'none';
     }
-    
-    // طلب حالة الإعلان لتحديث الزر
-    api('adStatus', { user_id: getTelegramUserID() }).then(statusResponse => {
-        if (statusResponse.success) {
-            updateAdButton(statusResponse.data);
-        }
-    });
 }
 
-/**
- * إصلاح: يعتمد فقط على remaining_cooldown_sec و ads_watched_today (إصلاح 1).
- */
+// === Update Ad Button ===
 function updateAdButton(data) {
-    if (!UI.adsBtn) return;
-    
+    const btn = UI.adsBtn;
+    if (!btn) return;
+
     const { ads_watched_today, remaining_cooldown_sec } = data;
 
     if (ads_watched_today >= DAILY_MAX_ADS) {
-        UI.adsBtn.style.opacity = 0.4;
-        UI.adsBtn.style.pointerEvents = 'none';
-        UI.adsBtn.textContent = 'Back Tomorrow';
+        btn.textContent = "Back Tomorrow";
+        btn.style.opacity = .5;
+        btn.style.pointerEvents = "none";
         return;
     }
 
     if (remaining_cooldown_sec > 0) {
-        UI.adsBtn.style.pointerEvents = 'none';
-        UI.adsBtn.style.opacity = 0.6;
-        UI.adsBtn.textContent = `Wait ${remaining_cooldown_sec}s`;
-        
-        // إعادة التحقق بعد انتهاء الكوولداون
-        setTimeout(() => getProfile(), (remaining_cooldown_sec) * 1000 + 500); 
+        btn.textContent = `Wait ${remaining_cooldown_sec}s`;
+        btn.style.opacity = .6;
+        btn.style.pointerEvents = "none";
+
+        setTimeout(() => getProfile(), remaining_cooldown_sec * 1000 + 300);
         return;
     }
 
-    UI.adsBtn.style.opacity = 1;
-    UI.adsBtn.style.pointerEvents = 'auto';
-    UI.adsBtn.textContent = 'Ads';
+    btn.textContent = "Ads";
+    btn.style.opacity = 1;
+    btn.style.pointerEvents = "auto";
 }
 
-/**
- * إصلاح: عدم مسح كل الكلاسات وإضافة class للنوع فقط (إصلاح 4).
- */
-function showMsg(element, text, type) {
-    if (!element) return;
-    // الحفاظ على الكلاسات الأصلية وإضافة كلاس النوع
-    element.className = element.className.replace(/error|success/g, '').trim() + ' ' + type;
-    element.textContent = text;
-    element.style.opacity = '1';
-    setTimeout(() => {
-        element.style.opacity = '0';
-        // إزالة كلاس النوع بعد الاختفاء
-        element.className = element.className.replace(type, '').trim(); 
-    }, 3000);
+// === Profile ===
+async function getProfile() {
+    const userId = getTelegramUserID();
+    if (!userId) return;
+
+    const response = await api("profile", { user_id: userId });
+    if (!response.success) return;
+
+    updateUI(response.data);
+    updateAdButton(response.data);
 }
 
-/**
- * إصلاح: يعمل داخل Telegram WebApp وخارجه (إصلاح 5).
- */
-function copyRefLink() {
-    const userId = getTelegramUserID() || 'DEFAULT_USER_ID'; 
-    const link = `https://t.me/${BOT_USERNAME}/earn?startapp=ref_${userId}`;
+// === Watch Ad ===
+async function handleAdWatch() {
+    const userId = getTelegramUserID();
+    if (!userId) return;
 
-    if (navigator.clipboard) {
-        navigator.clipboard.writeText(link).then(() => {
-            if (UI.copyMsg) {
-                UI.copyMsg.style.opacity = '1';
-                setTimeout(() => UI.copyMsg.style.opacity = '0', 2000);
-            }
-        }).catch(err => {
-            showNotif('Failed to copy link via Clipboard API.', 'error');
-        });
-    } else if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.clipboardText) {
-        // Fallback لـ Telegram WebApp
-        window.Telegram.WebApp.clipboardText = link;
-        if (UI.copyMsg) {
-            UI.copyMsg.style.opacity = '1';
-            setTimeout(() => UI.copyMsg.style.opacity = '0', 2000);
+    const status = await api("adStatus", { user_id: userId });
+    if (!status.success) return showNotif(status.error, 'error');
+
+    const { can_watch, remaining_cooldown_sec } = status.data;
+    if (!can_watch) {
+        updateAdButton(status.data);
+        return showNotif(
+            remaining_cooldown_sec > 0
+                ? `Wait ${remaining_cooldown_sec}s`
+                : "Daily limit reached",
+            'error'
+        );
+    }
+
+    try {
+        await window.showGiga();
+
+        const reward = await api("adWatch", { user_id: userId, reward: AD_REWARD });
+        if (reward.success) {
+            updateUI(reward.data);
+            updateAdButton(reward.data);
+            return showNotif(`+${AD_REWARD} Points!`, "success");
         }
-    } else {
-        showNotif('Clipboard access not supported.', 'error');
+        showNotif(reward.error, 'error');
+    } catch {
+        showNotif("Ad cancelled", "error");
     }
 }
 
-// === Boilerplate Functions (Unchanged Logic) ===
+// === Swap ===
+async function handleSwap() {
+    const amount = parseInt(UI.pointsInput.value);
+    if (!amount || amount <= 0) return showMsg(UI.swapMsg, "Invalid amount", 'error');
 
-function handleWithdraw() {
+    const res = await api("swap", { points_amount: amount });
+    if (res.success) {
+        updateUI(res.data);
+        updateAdButton(res.data);
+        UI.pointsInput.value = "";
+        calcSwap();
+        return showMsg(UI.swapMsg, "Swap completed!", 'success');
+    }
+    showMsg(UI.swapMsg, res.error, 'error');
+}
+
+function calcSwap() {
+    const points = parseInt(UI.pointsInput.value) || 0;
+    UI.usdtValue.textContent = (points / POINTS_TO_USDT_RATE).toFixed(4) + " USDT";
+}
+
+// === Withdraw ===
+async function handleWithdraw() {
+    const amount = parseFloat(UI.withdrawAmountInput.value);
     const binanceId = UI.binanceIdInput.value.trim();
-    const amount = parseFloat(UI.withdrawAmountInput.value) || 0;
-    const minAmount = 0.03;
 
-    if (binanceId.length === 0) {
-        showMsg(UI.withdrawMsg, 'Please enter your Binance ID', 'error');
-        return;
+    if (amount < 0.03) return showMsg(UI.withdrawMsg, "Min 0.03 USDT", 'error');
+    if (!binanceId) return showMsg(UI.withdrawMsg, "Enter Binance ID", 'error');
+
+    const res = await api("withdraw", { amount, binance_id: binanceId });
+    if (res.success) {
+        updateUI(res.data);
+        UI.withdrawAmountInput.value = "";
+        UI.binanceIdInput.value = "";
+        return showMsg(UI.withdrawMsg, "Withdrawal submitted!", 'success');
     }
-    if (amount < minAmount) {
-        showMsg(UI.withdrawMsg, `Minimum withdrawal is ${minAmount.toFixed(2)} USDT`, 'error');
-        return;
-    }
-    
-    const response = await api('withdraw', {
-        user_id: getTelegramUserID(),
-        binance_id: binanceId,
-        amount: amount
-    });
-    
-    if (UI.withdrawMsg) {
-        if (response.success && response.data) {
-            showMsg(UI.withdrawMsg, response.message || 'Withdrawal request successful!', 'success');
-            updateUI(response.data);
-            UI.binanceIdInput.value = '';
-            UI.withdrawAmountInput.value = '';
-        } else {
-            showMsg(UI.withdrawMsg, response.error || 'Withdrawal Failed', 'error');
-        }
-    }
+    showMsg(UI.withdrawMsg, res.error, 'error');
 }
 
-// ... calcSwap, loadLeaderboard, showPage, showNotif, setupButtons ...
+// === Leaderboard ===
+async function loadLeaderboard() {
+    UI.leaderboardStatus.textContent = "Loading...";
 
-// Main initialization function
+    const res = await api("leaderboard");
+    if (!res.success) {
+        UI.leaderboardStatus.textContent = `Error: ${res.error}`;
+        return;
+    }
+
+    UI.leaderboardList.innerHTML = "";
+    res.data.forEach((u, i) => {
+        const li = document.createElement("li");
+        li.innerHTML = `
+            <span>#${i + 1}</span>
+            <span>${u.username || u.first_name || 'User'}</span>
+            <span>${u.points} Points</span>
+        `;
+        UI.leaderboardList.appendChild(li);
+    });
+
+    UI.leaderboardStatus.textContent = "";
+}
+
+// === Navigation ===
+function showMsg(el, text, type) {
+    el.textContent = text;
+    el.className = type;
+    el.style.opacity = 1;
+    setTimeout(() => el.style.opacity = 0, 2500);
+}
+function showNotif(txt, type) {
+    showMsg(UI.notifBar, txt, type);
+}
+
+function showPage(id) {
+    const pages = [UI.home, UI.task, UI.ledbord, UI.withdraw, UI.swap, UI.refal];
+    pages.forEach(p => p.style.display = p.id === id ? "block" : "none");
+
+    if (id === "ledbord") loadLeaderboard();
+}
+
+function setupButtons() {
+    UI.adsBtn.onclick = handleAdWatch;
+    UI.swap.onclick = () => showPage("swap");
+    UI.withdraw.onclick = () => showPage("withdraw");
+    UI.ledbord.onclick = () => showPage("ledbord");
+    UI.refal.onclick = () => showPage("refal");
+
+    document.querySelectorAll(".back-btn").forEach(btn =>
+        btn.onclick = () => showPage("home")
+    );
+
+    document.getElementById("doWithdraw").onclick = handleWithdraw;
+    document.getElementById("doSwap").onclick = handleSwap;
+    UI.copyBtn.onclick = copyRefLink;
+    UI.pointsInput.oninput = calcSwap;
+
+    showPage("home");
+}
+
+// === Copy Ref Link ===
+function copyRefLink() {
+    const id = getTelegramUserID();
+    if (!id) return;
+    const link = `https://t.me/${BOT_USERNAME}/earn?startapp=ref_${id}`;
+
+    if (window.Telegram?.WebApp?.setClipboardText) {
+        window.Telegram.WebApp.setClipboardText(link);
+    } else navigator.clipboard?.writeText(link);
+
+    UI.copyMsg.style.opacity = 1;
+    setTimeout(() => UI.copyMsg.style.opacity = 0, 2000);
+}
+
+// === Init ===
 async function init() {
-    await registerUser(); 
+    await registerUser();
     await getProfile();
     setupButtons();
-    calcSwap(); 
-    if (UI.loaderOverlay) UI.loaderOverlay.style.display = 'none';
-    console.log("App initialized.");
+    calcSwap();
 }
 
-// === Telegram WebApp Fix ===
-if (window.Telegram && window.Telegram.WebApp) {
+if (window.Telegram?.WebApp) {
     window.Telegram.WebApp.ready();
     window.Telegram.WebApp.expand();
 }
 
-window.addEventListener('DOMContentLoaded', init);
+window.addEventListener("DOMContentLoaded", init);
