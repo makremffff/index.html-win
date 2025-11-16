@@ -1,1 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>iPhone 14 Pro – Loading + Telegram + Ads</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{
+            height:100vh;display:flex;align-items:center;justify-content:center;
+            background:#111;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display",Helvetica,Arial,sans-serif;
+        }
+        .phone{
+            position:relative;width:min(390px, 90vw);aspect-ratio:9/17.55;
+            background:#000;border-radius:47px;
+            box-shadow:0 0 0 2px #333, 0 0 0 4px #000, 0 25px 50px -10px rgba(0,0,0,.6);
+            overflow:hidden;
+        }
+        .island{
+            position:absolute;top:10px;left:50%;transform:translateX(-50%);
+            width:126px;height:37px;background:#000;border-radius:20px;z-index:3;
+        }
+        .screen{
+            position:absolute;inset:3px;background:#1a1a1a;border-radius:44px;
+            overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;
+            padding-bottom:20px;
+        }
+        .btn-row{display:flex;gap:12px;margin-bottom:12px}
+        .btn{
+            width:40px;height:40px;border-radius:12px;
+            background:linear-gradient(145deg, #c62c2c, #8a1b1b);
+            box-shadow:6px 6px 12px #0f0f0f, -6px -6px 12px #3b3b3b;
+            transition:.15s;cursor:pointer;display:flex;align-items:center;justify-content:center;
+            color:#fff;font-size:10px;font-weight:600;text-align:center;user-select:none;padding:2px;
+        }
+        .btn:active{
+            box-shadow:inset 6px 6px 12px #0f0f0f, inset -6px -6px 12px #3b3b3b;
+            transform:scale(.96);
+        }
+        .page{position:absolute;inset:0;background:#000;display:none}
+        .page.active{display:block}
+        .back{position:absolute;top:20px;left:20px;background:#c62c2c;border:none;color:#fff;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:14px}
 
+        /* دائرة المستخدم */
+        .user-circle{
+            position:absolute;top:20px;left:20px;width:56px;height:56px;border-radius:50%;
+            border:3px solid #c62c2c;background:transparent;display:flex;align-items:center;justify-content:center;z-index:10;
+        }
+        .user-img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:none}
+        .username{position:absolute;top:85px;left:20px;color:#fff;font-size:14px;font-weight:600;z-index:10}
+
+        /* رصيد أنيق - يظهر فقط في الشاشة الرئيسية */
+        .top-balance{
+            position:absolute;
+            top:9%;
+            right:20px;
+            display:flex;
+            flex-direction:column;
+            gap:8px;
+            z-index:10;
+            pointer-events:none;
+        }
+        .balance-row{
+            display:flex;
+            align-items:center;
+            gap:8px;
+        }
+        .balance-label{
+            color:#fff;
+            font-size:13px;
+            font-weight:600;
+            text-shadow:0 0 2px #000;
+        }
+
+        /* LED Style */
+        .led{
+            background:#000;
+            color:#0f0;
+            font-family:'Courier New', monospace;
+            font-weight:bold;
+            padding:2px 6px;
+            border-radius:4px;
+            border:1px solid #0f0;
+            font-size:11px;
+            letter-spacing:1px;
+        }
+
+        /* رسائل التحويل والسحب */
+        #swapMsg, #withdrawMsg{margin-top:15px;font-size:14px;font-weight:600;opacity:0;transition:opacity .3s}
+        #swapMsg.error, #withdrawMsg.error{color:#f44336}
+        #swapMsg.success, #withdrawMsg.success{color:#4CAF50}
+
+        /* شاشة التحميل */
+        #loaderOverlay{
+            position:absolute;inset:0;background:#000;z-index:999;
+            display:flex;align-items:center;justify-content:center;flex-direction:column;gap:15px;
+        }
+        .loader-circle{
+            width:50px;height:50px;border:5px solid #222;border-top-color:#0f0;border-radius:50%;
+            animation:spin 1s linear infinite;
+        }
+        @keyframes spin{to{transform:rotate(360deg)}}
+        .loader-text{color:#0f0;font-size:13px;font-family:'Courier New',monospace;}
+
+        /* إشعار انتهاء الإعلانات */
+        #notifBar{
+            position:absolute;top:60px;left:50%;transform:translateX(-50%);
+            background:#000;border:1px solid #0f0;color:#0f0;padding:8px 14px;border-radius:8px;
+            font-size:12px;font-family:'Courier New',monospace;display:none;z-index:20;
+        }
+    </style>
+</head>
+<body>
+    <div class="phone">
+        <div id="loaderOverlay">
+            <div class="loader-circle"></div>
+            <div class="loader-text">Loading user data...</div>
+        </div>
+
+        <div id="notifBar">✅ انتهيت من الإعلانات لليوم، عد غدًا!</div>
+
+        <div class="user-circle" id="userCircle"><img class="user-img" id="userImg"></div>
+        <div class="username" id="username"></div>
+        <div class="island"></div>
+
+        <div class="top-balance" id="topBalance">
+            <div class="balance-row">
+                <span class="balance-label">Points</span>
+                <span class="led" id="points">0</span>
+            </div>
+            <div class="balance-row">
+                <span class="balance-label">USDT</span>
+                <span class="led" id="usdt">0.00</span>
+            </div>
+        </div>
+
+        <div class="screen" id="home">
+            <div class="btn-row">
+                <div class="btn" data-page="withdraw">Withdraw</div>
+                <div class="btn" data-page="task">Task</div>
+                <div class="btn" id="adsBtn" data-action="ads">Ads</div>
+                <div class="btn" data-page="swap">Swap</div>
+                <div class="btn" data-page="ledbord">Ledbord</div>
+                <div class="btn" data-page="refal">Refal</div>
+            </div>
+        </div>
+
+        <div class="page" id="task"><button class="back" data-page="home">Back</button></div>
+        <div class="page" id="ledbord">
+            <button class="back" data-page="home">Back</button>
+            <div style="display:flex;flex-direction:column;align-items:center;height:100%;padding:20px;color:#fff;">
+                <h2 style="margin-bottom:20px;">Leaderboard (Top 10)</h2>
+                <ul id="leaderboardList" style="list-style-type:none; padding:0; width:100%; max-width:300px;"></ul> 
+                <p id="leaderboardStatus" style="margin-top:10px; font-size:12px; color:#bbb;">Loading...</p>
+            </div>
+        </div>
+
+        <div class="page" id="withdraw">
+            <button class="back" data-page="home">Back</button>
+            <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;padding:20px;color:#fff;">
+                <h2 style="margin-bottom:30px;">Withdraw USDT</h2>
+
+                <label style="font-size:14px;margin-bottom:8px;">Enter Binance ID</label>
+                <input type="text" id="binanceIdInput" placeholder="Your Binance UID" style="
+                    width:100%;max-width:280px;padding:12px;border-radius:12px;border:1px solid #0f0;
+                    background:#000;color:#0f0;font-size:16px;text-align:center;margin-bottom:20px;font-family:'Courier New', monospace;">
+
+                <label style="font-size:14px;margin-bottom:8px;">Enter USDT Amount (Min 0.03)</label>
+                <input type="number" id="withdrawAmountInput" class="led" placeholder="0.03" min="0.03" step="0.01" style="
+                    width:100%;max-width:280px;padding:12px;border-radius:12px;border:1px solid #0f0;
+                    background:#000;color:#0f0;font-size:16px;text-align:center;margin-bottom:15px;font-family:'Courier New', monospace;">
+                
+                <div style="font-size:12px;color:#bbb;margin-bottom:30px;">
+                    Available USDT: <span class="led" id="availableUsdt">0.00</span>
+                </div>
+
+                <button data-action="submit-withdraw" style="
+                    background:linear-gradient(145deg, #c62c2c, #8a1b1b);
+                    border:none;color:#fff;padding:15px 30px;border-radius:12px;
+                    font-size:16px;font-weight:600;cursor:pointer;
+                    box-shadow:6px 6px 12px #0f0f0f, -6px -6px 12px #3b3b3b;transition:all .15s">Withdraw</button>
+                
+                <div id="withdrawMsg"></div>
+            </div>
+        </div>
+        <div class="page" id="swap">
+            <button class="back" data-page="home">Back</button>
+            <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;padding:20px;color:#fff;">
+                <h2 style="margin-bottom:30px;">Swap Points to USDT</h2>
+                <label style="font-size:14px;margin-bottom:8px;">Enter Points</label>
+                <input type="number" id="pointsInput" class="led" placeholder="0" min="0" step="1" style="
+                    width:100%;max-width:280px;padding:12px;border-radius:12px;border:1px solid #0f0;
+                    background:#000;color:#0f0;font-size:16px;text-align:center;margin-bottom:20px;font-family:'Courier New', monospace;">
+                <div style="font-size:14px;color:#bbb;margin-bottom:15px;">
+                    You will receive: <span id="usdtValue" class="led" style="color:#4CAF50;font-weight:600;">0.00 USDT</span>
+                </div>
+                <button data-action="submit-convert" style="
+                    background:linear-gradient(145deg, #c62c2c, #8a1b1b);
+                    border:none;color:#fff;padding:15px 30px;border-radius:12px;
+                    font-size:16px;font-weight:600;cursor:pointer;
+                    box-shadow:6px 6px 12px #0f0f0f, -6px -6px 12px #3b3b3b;transition:all .15s">Convert</button>
+                <div id="swapMsg"></div>
+            </div>
+        </div>
+
+        <div class="page" id="refal">
+            <button class="back" data-page="home">Back</button>
+            <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;padding:20px;">
+                <h2 style="color:#fff;margin-bottom:30px;">Referral Program</h2>
+                <button id="copyBtn" data-action="copy-link" style="
+                    background:linear-gradient(145deg, #c62c2c, #8a1b1b);
+                    border:none;color:#fff;padding:15px 30px;border-radius:12px;
+                    font-size:16px;font-weight:600;cursor:pointer;
+                    box-shadow:6px 6px 12px #0f0f0f, -6px -6px 12px #3b3b3b;transition:all .15s">Copy Referral Link</button>
+                <div id="copyMsg" style="color:#4CAF50;margin-top:15px;opacity:0;transition:opacity .3s">✓ Copied!</div>
+                <div style="margin-top:30px;color:#fff;font-size:18px">Referrals: <span id="refCount" class="led">0</span></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://ad.gigapub.tech/script?id=3459"></script>
+
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+    <script src="index.js"></script>
+</body>
+</html>
